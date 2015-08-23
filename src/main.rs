@@ -43,7 +43,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             else {
                 token.push(c);
                 match self.next_char {
-                    None => break,
+                    None => ready = true,
                     Some(n) =>
                         if is_whitespace(n) || END_CHARS.contains(&n) {
                             ready = true;
@@ -75,7 +75,7 @@ fn tokenize<'a>(str: &'a str) -> Tokenizer<'a> {
 }
 
 fn main() {
-    let tokens: Tokenizer = tokenize("(test,,, 12234dd 2 3) { 1 2} [12, a] #{:a :b} [] #fancy[] (()) #\"regexp\" \"a\"");
+    let tokens: Tokenizer = tokenize("(test,,, 12234dd 2 3) { 1 2} [12, a] #{:a :b} [] #fancy[] (()) #\"regexp\" \"a\" (sde");
 
     println!("{:?}", tokens.collect::<Vec<String>>());
 }
