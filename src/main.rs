@@ -79,7 +79,6 @@ impl<'a> Iterator for TokenStream<'a> {
             }
 
             self.read_next();
-
             if ready { break; }
         }
 
@@ -89,7 +88,6 @@ impl<'a> Iterator for TokenStream<'a> {
         else {
             return Some(token);
         }
-
     }
 }
 
@@ -100,7 +98,7 @@ fn tokenize<'a>(str: &'a str) -> TokenStream<'a> {
     TokenStream {rest: rest, current_char: current, next_char: next, stringing: false}
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 enum Form {
     Literal(String),
     String(String),
@@ -120,14 +118,14 @@ enum Outer {
     None
 }
 
-struct FormStream<'rf, 'stream: 'rf> {
-    tokens: &'rf mut TokenStream<'stream>,
+struct FormStream<'rf> {
+    tokens: &'rf mut Iterator<Item = Token>,
     current_token: Option<Token>,
     next_token: Option<Token>,
     outer: Outer
 }
 
-impl<'rf,'stream: 'rf> FormStream<'rf, 'stream> {
+impl<'rf> FormStream<'rf> {
 
     fn read_inner<'a>(&mut self, outer: Outer)
                                 -> Vec<Form> {
@@ -165,7 +163,7 @@ impl<'rf,'stream: 'rf> FormStream<'rf, 'stream> {
     }
 }
 
-impl<'a, 'b> Iterator for FormStream<'a, 'b> {
+impl<'a> Iterator for FormStream<'a> {
     type Item = Form;
 
     fn next(&mut self) -> Option<Form> {
@@ -215,7 +213,7 @@ impl<'a, 'b> Iterator for FormStream<'a, 'b> {
                         &'(' => LIST.1,
                         &'[' => VECTOR.1,
                         &'{' => MAP.1,
-                        _ => panic!("dispatch read error")
+                        _ => unreachable!("dispatch read error")
                     };
 
                     inner = self.read_inner(Outer::Dispatch);
@@ -254,15 +252,103 @@ impl<'a, 'b> Iterator for FormStream<'a, 'b> {
         else {
             return Some(form);
         }
-
     }
 
 }
 
-fn read<'rf, 'stream>(tokens: &'rf mut TokenStream<'stream>) -> FormStream<'rf, 'stream> {
+fn read<'rf>(tokens: &'rf mut Iterator<Item = Token>) -> FormStream<'rf> {
     let current = tokens.next();
     let next = tokens.next();
     FormStream{tokens: tokens, current_token: current, next_token: next, outer: Outer::None}
+}
+
+#[derive(Debug)]
+enum Expression {
+    Symbol(String),
+    Number(String),
+    String(String),
+    SExpression(Vec<Expression>)
+}
+
+trait HasForm {
+    fn give_form(&mut self) -> &mut Form;
+}
+
+impl HasForm for Form {
+    fn give_form(&mut self) -> &mut Form {
+        return self;
+    }
+}
+
+struct ExpressionStream<'rf, T: HasForm> {
+    forms: &'rf mut Iterator<Item = T>,
+}
+
+fn prepend<T>(item: T, mut v: Vec<T>) -> Vec<T> {
+    v.insert(0, item);
+    v
+}
+
+fn symbol(name: &'static str) -> Expression {
+    Expression::Symbol(String::from(name))
+}
+
+fn dispatch(value: String, inner: Vec<Form>) -> Expression {
+
+    match value.as_ref() {
+        "#{" => Expression::SExpression(prepend(symbol("set"), parse_vec(inner))),
+        _ => panic!("Unknow dispatch value {}", value)
+    }
+}
+
+impl<'a, T: HasForm> Iterator for ExpressionStream<'a, T> {
+    type Item = Expression;
+
+    fn next(&mut self) -> Option<Expression> {
+        //None::<Expression>
+        if let Some(mut t) = self.forms.next() {
+            match t.give_form().clone() {
+                Form::List(inner) =>
+                    return Some(Expression::SExpression(parse_vec(inner))),
+                Form::Vector(inner) =>
+                    return Some(Expression::SExpression(
+                        prepend(symbol("vector"),(parse_vec(inner))))),
+                Form::Map(inner) =>
+                    return Some(Expression::SExpression(
+                        prepend(symbol("hash-map"),(parse_vec(inner))))),
+                Form::Literal(value) => {
+                    let chars = value.chars().collect::<Vec<char>>();
+                    if chars[0].is_numeric() ||
+                        (chars.len() > 1 && chars[0] == '-' && chars[1].is_numeric()) {
+                        return Some(Expression::Number(value));
+                    }
+                    else {
+                        return Some(Expression::Symbol(value));
+                    }
+                },
+                Form::String(value) =>
+                    return Some(Expression::String(value)),
+                Form::Dispatch(value, inner) =>
+                    return Some(dispatch(value, inner)),
+               _ => unreachable!("expression error")
+           }
+        }
+        else {
+            None::<Expression>
+        }
+    }
+}
+
+fn parse_vec<T>(forms: Vec<T>) -> Vec<Expression>
+    where T: HasForm
+{
+    return parse(&mut forms.into_iter()).collect();
+}
+
+fn parse<'rf, I, T>(forms: &'rf mut I) -> ExpressionStream<'rf, T>
+    where I: Iterator<Item = T>, T: HasForm
+{
+    ExpressionStream{forms: forms}
 }
 
 fn main() {
@@ -270,8 +356,14 @@ fn main() {
 
    // println!("{:?}", tokens.collect::<Vec<String>>());
 
-    let mut read_tokens = tokenize("#{1 [2] 3}(4 5 6)\"Test      texkt\"");
-    let form_test = read(&mut read_tokens);
+    // let mut read_tokens = tokenize("#{1 [2] 3}(4 5 6)\"Test      texkt\"");
+    // let form_test = read(&mut read_tokens);
 
-    println!("{:?}", form_test.collect::<Vec<Form>>());
+    // println!("{:?}", form_test.collect::<Vec<Form>>());
+
+    let mut parse_tokens = tokenize("(+ 1 2 -3)");
+    let mut parse_form = read(&mut parse_tokens);
+    let expression_test = parse(&mut parse_form);
+
+    println!("{:?}", expression_test.collect::<Vec<Expression>>());
 }
