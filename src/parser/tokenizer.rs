@@ -117,4 +117,13 @@ mod tests {
         assert_eq!(vec!("\"", "str 1", "\"", "\"", "str 2", "\""),
                    token_vector("\"str 1\" \"str 2\" "));
     }
+
+    #[test]
+    fn dispatch() {
+        assert_eq!(vec!("#(","1","2","3",")"), token_vector("#(1,,, 2    3)"));
+        assert_eq!(vec!("#{","1","2","3","}"), token_vector("#{1 2 3}"));
+        assert_eq!(vec!("#custom"), token_vector("#custom"));
+        assert_eq!(vec!("#custom(", "1", "2", "3", ")"), token_vector("#custom(1 2 3)"));
+        assert_eq!(vec!("#custom", "symbol"), token_vector("#custom symbol"));
+    }
 }
