@@ -14,6 +14,7 @@ const END_CHARS: [char; 3] = [')', '}', ']'];
 
 const QUOTE: char = '"';
 const DISPATCH : char = '#';
+const COMMENT: char = ';';
 
 #[derive(Debug)]
 pub enum Expression {

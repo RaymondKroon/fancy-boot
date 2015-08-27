@@ -1,5 +1,5 @@
 use std::str::Chars;
-use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH};
+use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT};
 
 pub type Token = String;
 
@@ -7,7 +7,8 @@ pub struct TokenStream<'a> {
     rest: Chars<'a>,
     current_char: Option<char>,
     next_char: Option<char>,
-    stringing: bool
+    stringing: bool,
+    skipping: bool
 }
 
 fn is_whitespace(c: char) -> bool {
@@ -28,6 +29,10 @@ impl<'a> Iterator for TokenStream<'a> {
         let mut token = String::new();
         let mut ready = false;
 
+        if self.skipping {
+            return None::<Token>;
+        }
+
         while let Some(c) = self.current_char {
             if c == QUOTE {
                 token.push(c);
@@ -39,6 +44,9 @@ impl<'a> Iterator for TokenStream<'a> {
                 if self.next_char == Some(QUOTE) {
                     ready = true;
                 }
+            }
+            else if c == COMMENT {
+                ready = true;
             }
             else if is_whitespace(c)  {
 
@@ -78,7 +86,8 @@ pub fn tokenize<'a>(str: &'a String) -> TokenStream<'a> {
     let mut rest = str.chars();
     let current = rest.next();
     let next = rest.next();
-    TokenStream {rest: rest, current_char: current, next_char: next, stringing: false}
+    TokenStream {rest: rest, current_char: current,
+                 next_char: next, stringing: false, skipping: false}
 }
 
 #[cfg(test)]
@@ -125,5 +134,12 @@ mod tests {
         assert_eq!(vec!("#custom"), token_vector("#custom"));
         assert_eq!(vec!("#custom(", "1", "2", "3", ")"), token_vector("#custom(1 2 3)"));
         assert_eq!(vec!("#custom", "symbol"), token_vector("#custom symbol"));
+    }
+
+    #[test]
+    fn comment() {
+        assert_eq!(vec!("[","[","]","]"), token_vector("[[]] ;; comment here"));
+        assert_eq!(vec!("\"","with ;; in string too","\""),
+                   token_vector("\"with ;; in string too\""));
     }
 }
