@@ -29,26 +29,23 @@ impl<'a> Iterator for TokenStream<'a> {
         let mut ready = false;
 
         while let Some(c) = self.current_char {
-            if self.stringing && self.next_char != Some(QUOTE) {
-                token.push(c)
+            if c == QUOTE {
+                token.push(c);
+                ready = true;
+                self.stringing = !self.stringing;
+            }
+            else if self.stringing {
+                token.push(c);
+                if self.next_char == Some(QUOTE) {
+                    ready = true;
+                }
             }
             else if is_whitespace(c)  {
-                if self.stringing {
-                    token.push(c);
-                }
-            }
-            else if END_CHARS.contains(&c) || (self.stringing && c == QUOTE) {
-                token.push(c);
-                ready = true;
-                self.stringing = false;
-            }
-            else if START_CHARS.contains(&c) || c == QUOTE {
-                token.push(c);
-                ready = true;
 
-                if c == QUOTE {
-                    self.stringing = true;
-                }
+            }
+            else if START_CHARS.contains(&c) || END_CHARS.contains(&c) {
+                token.push(c);
+                ready = true;
             }
             else if DISPATCH == c {
                 token.push(c);
@@ -82,4 +79,42 @@ pub fn tokenize<'a>(str: &'a String) -> TokenStream<'a> {
     let current = rest.next();
     let next = rest.next();
     TokenStream {rest: rest, current_char: current, next_char: next, stringing: false}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tokenize;
+    use super::Token;
+
+    fn token_vector(str: &'static str) -> Vec<Token> {
+        tokenize(&String::from(str)).collect::<Vec<Token>>()
+    }
+
+    #[test]
+    fn simple_forms() {
+        assert_eq!(vec!("(","1","2","3",")"), token_vector("(1 2 3)"));
+        assert_eq!(vec!("[","1","2","3","]"), token_vector("[1 2 3]"));
+        assert_eq!(vec!("{","1","2","3","}"), token_vector("{1 2 3}"));
+    }
+
+    #[test]
+    fn ignore_whitespace() {
+        assert_eq!(vec!("(","1","2","3",")"), token_vector("(1,,, 2    3)"));
+    }
+
+    #[test]
+    fn parse_strings() {
+        assert_eq!(vec!("\"","multi word string { }","\""),
+                   token_vector("\"multi word string { }\""));
+        assert_eq!(vec!("\"","with line-breaks\n Second\r\nThird","\""),
+                   token_vector("\"with line-breaks\n Second\r\nThird\""));
+    }
+
+    #[test]
+    fn multi_forms() {
+        assert_eq!(vec!("(","1",")","[","2","]","12","\"", ";;12", "\"", "{"),
+                   token_vector("(1) [2] 12   \";;12\" {"));
+        assert_eq!(vec!("\"", "str 1", "\"", "\"", "str 2", "\""),
+                   token_vector("\"str 1\" \"str 2\" "));
+    }
 }
