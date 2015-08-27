@@ -1,39 +1,71 @@
-use std::str::Chars;
 use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT};
 
 pub type Token = String;
 
-pub struct TokenStream<'a> {
-    rest: Chars<'a>,
-    current_char: Option<char>,
-    next_char: Option<char>,
-    stringing: bool,
-    skipping: bool
+pub trait Reader {
+    fn current_char(&mut self) -> Option<char>;
+    fn next_char(&mut self) -> Option<char>;
+    fn pop(&mut self);
+    fn flush_line(&mut self);
+}
+
+pub struct StringReader {
+    chars: Vec<char>,
+    size: usize,
+    index: usize
+}
+
+impl StringReader {
+    fn new (str: & String) -> StringReader {
+        StringReader{chars: str.chars().collect(), size: str.len(), index: 0}
+    }
+}
+
+impl Reader for StringReader {
+    fn current_char(&mut self) -> Option<char> {
+        if self.index < self.size {
+            return Some(self.chars[self.index]);
+        }
+        else {
+            return None::<char>;
+        }
+    }
+
+    fn next_char(&mut self) -> Option<char> {
+        if (self.index + 1) < self.size {
+            return Some(self.chars[self.index + 1]);
+        }
+        else {
+            return None::<char>;
+        }
+    }
+
+    fn pop(&mut self) {
+        self.index = self.index + 1;
+    }
+
+    fn flush_line(&mut self) {
+        self.index = self.size + 1;
+    }
+}
+
+pub struct TokenStream<T: Reader + Sized> {
+    reader: T,
+    stringing: bool
 }
 
 fn is_whitespace(c: char) -> bool {
     c.is_whitespace() || c == ','
 }
 
-impl<'a> TokenStream<'a> {
-    fn read_next(&mut self) {
-        self.current_char = self.next_char;
-        self.next_char = self.rest.next();
-    }
-}
-
-impl<'a> Iterator for TokenStream<'a> {
+impl<T: Reader + Sized> Iterator for TokenStream<T> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Token> {
         let mut token = String::new();
         let mut ready = false;
 
-        if self.skipping {
-            return None::<Token>;
-        }
-
-        while let Some(c) = self.current_char {
+        while let Some(c) = self.reader.current_char() {
             if c == QUOTE {
                 token.push(c);
                 ready = true;
@@ -41,7 +73,7 @@ impl<'a> Iterator for TokenStream<'a> {
             }
             else if self.stringing {
                 token.push(c);
-                if self.next_char == Some(QUOTE) {
+                if self.reader.next_char() == Some(QUOTE) {
                     ready = true;
                 }
             }
@@ -60,7 +92,7 @@ impl<'a> Iterator for TokenStream<'a> {
             }
             else {
                 token.push(c);
-                match self.next_char {
+                match self.reader.next_char() {
                     None => ready = true,
                     Some(n) =>
                         if is_whitespace(n) || END_CHARS.contains(&n) || n == QUOTE {
@@ -69,7 +101,7 @@ impl<'a> Iterator for TokenStream<'a> {
                 }
             }
 
-            self.read_next();
+            self.reader.pop();
             if ready { break; }
         }
 
@@ -82,12 +114,9 @@ impl<'a> Iterator for TokenStream<'a> {
     }
 }
 
-pub fn tokenize<'a>(str: &'a String) -> TokenStream<'a> {
-    let mut rest = str.chars();
-    let current = rest.next();
-    let next = rest.next();
-    TokenStream {rest: rest, current_char: current,
-                 next_char: next, stringing: false, skipping: false}
+pub fn tokenize<'a>(str: &'a String) -> TokenStream<StringReader> {
+    let mut reader = StringReader::new(str);
+    TokenStream {reader: reader, stringing: false}
 }
 
 #[cfg(test)]
