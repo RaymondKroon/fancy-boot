@@ -78,6 +78,7 @@ impl<T: Reader + Sized> Iterator for TokenStream<T> {
                 }
             }
             else if c == COMMENT {
+                self.reader.flush_line();
                 ready = true;
             }
             else if is_whitespace(c)  {
