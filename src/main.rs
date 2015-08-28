@@ -1,16 +1,35 @@
 mod parser;
 
+extern crate getopts;
+use getopts::Options;
+use std::env;
+
 fn main() {
-    //let tokens: TokenStream = tokenize("(test,,, 12234dd 2 3) { 1 2} [12, a] #{:a :b} [] #fancy[] (()) #\"regexp\" \"meerdere woorden, met daartussen spaties enzo()\" \"(sde");
+    let args: Vec<String> = env::args().collect();
+    //let program = args[0].clone();
 
-   // println!("{:?}", tokens.collect::<Vec<String>>());
+    let mut opts = Options::new();
+    opts.optopt("s", "", "parse expression from file", "FANCY EXPR");
+    opts.optopt("f", "file", "parse file", "FILE");
 
-    // let mut read_tokens = tokenize("#{1 [2] 3}(4 5 6)\"Test      texkt\"");
-    // let form_test = read(&mut read_tokens);
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m) => { m }
+        Err(f) => { panic!(f.to_string()) }
+    };
 
-    // println!("{:?}", form_test.collect::<Vec<Form>>());
+    if let Some(s) =  matches.opt_str("s") {
+        let expressions = parser::parse_string(s);
+        println!("{:?}", expressions);
 
-    let expressions = parser::parse_string(String::from("(+ 1 2 -3)"));
+        return;
+    }
 
-    println!("{:?}", expressions);
+    if let Some(s) =  matches.opt_str("f") {
+        let expressions = parser::parse_file(s);
+        println!("{:?}", expressions);
+
+        return;
+    }
+
+    return;
 }

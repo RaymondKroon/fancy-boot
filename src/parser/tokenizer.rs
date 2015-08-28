@@ -1,9 +1,7 @@
 use std::error::Error as Err;
 use std::fs::File;
-use std::io::{BufReader,BufRead,Lines, Error};
-use std::iter::{FilterMap};
+use std::io::{BufReader,BufRead};
 use std::path::Path;
-use std::result::Result;
 use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT};
 
 pub type Token = String;
@@ -67,14 +65,14 @@ impl FileReader
 {
     fn new (strpath: &String) -> Self {
         let path = Path::new(strpath);
-        let mut file = match File::open(&path) {
+        let file = match File::open(&path) {
             Err(why) => panic!("couldn't open {}: {}",
                            path.display(),
                            Err::description(&why)),
             Ok(file) => file,
         };
 
-        let mut reader = BufReader::new(file);
+        let reader = BufReader::new(file);
 
         let lines = reader.lines()
             .filter_map(|result| result.ok())
@@ -208,13 +206,13 @@ impl<T: Reader + Sized> Iterator for TokenStream<T> {
     }
 }
 
-pub fn tokenize<'a>(str: &'a String) -> TokenStream<StringReader> {
-    let mut reader = StringReader::new(str);
+pub fn tokenize(str: String) -> TokenStream<StringReader> {
+    let reader = StringReader::new(&str);
     TokenStream {reader: reader, stringing: false}
 }
 
 pub fn tokenize_file(path: String) -> TokenStream<FileReader> {
-    let mut reader = FileReader::new(&path);
+    let reader = FileReader::new(&path);
     TokenStream {reader: reader, stringing: false}
 }
 
@@ -225,7 +223,7 @@ mod tests {
     use super::Token;
 
     fn token_vector(str: &'static str) -> Vec<Token> {
-        tokenize(&String::from(str)).collect::<Vec<Token>>()
+        tokenize(String::from(str)).collect::<Vec<Token>>()
     }
 
     fn tokens_from_file(path: &'static str) -> Vec<Token> {

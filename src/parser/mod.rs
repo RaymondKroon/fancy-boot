@@ -105,10 +105,18 @@ fn parse<'rf, I, T>(forms: &'rf mut I) -> ExpressionStream<'rf, T>
     ExpressionStream{forms: forms}
 }
 
-pub fn parse_string<'a>(s: String) -> Vec<Expression> {
-    let mut tokens = tok::tokenize(&s);
+pub fn parse_string(s: String) -> Vec<Expression> {
+    let mut tokens = tok::tokenize(s);
     let mut forms = reader::read(&mut tokens);
 
     let expressions = parse(&mut forms);
     expressions.collect::<Vec<Expression>>()
+}
+
+pub fn parse_file(path: String) -> Vec<Expression> {
+    let mut tokens = tok::tokenize_file(path);
+    let mut forms = reader::read(&mut tokens);
+
+    let expression = parse(&mut forms);
+    expression.collect::<Vec<Expression>>()
 }

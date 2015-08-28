@@ -2,3 +2,5 @@
 name = "fancy-boot"
 version = "0.1.0"
 authors = ["Raymond Kroon <raymond@k3n.nl>"]
+[dependencies]
+getopts = "0.2.13"
