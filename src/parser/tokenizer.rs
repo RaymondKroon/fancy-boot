@@ -1,6 +1,6 @@
 use std::error::Error as Err;
 use std::fs::File;
-use std::io::{BufReader,BufRead};
+use std::io::{BufReader, BufRead, Read};
 use std::path::Path;
 use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT};
 
@@ -54,16 +54,16 @@ impl Reader for StringReader {
 }
 
 #[derive(Debug)]
-pub struct FileReader
+pub struct LineReader
 {
     lines: Vec<(usize, Vec<char>)>,
     current: (usize, usize),
     next: (usize, usize)
 }
 
-impl FileReader
+impl LineReader
 {
-    fn new (strpath: &String) -> Self {
+    fn from_file (strpath: &String) -> Self {
         let path = Path::new(strpath);
         let file = match File::open(&path) {
             Err(why) => panic!("couldn't open {}: {}",
@@ -74,12 +74,16 @@ impl FileReader
 
         let reader = BufReader::new(file);
 
+        Self::from_buffer(reader)
+    }
+
+    fn from_buffer<R: BufRead>(reader: R) -> Self {
         let lines = reader.lines()
             .filter_map(|result| result.ok())
             .map(|s| (s.len(), s.chars().collect()))
             .collect::<Vec<(usize, Vec<char>)>>();
 
-        FileReader{lines: lines,
+        LineReader{lines: lines,
                    current: (0, 0),
                    next: (0, 1)
         }
@@ -88,16 +92,22 @@ impl FileReader
     fn read_char(&self, idx: (usize, usize)) -> Option<char> {
         let (l,c) = idx;
         if l < self.lines.len()
-            && c < self.lines[l].0 {
+        {
+            if c < self.lines[l].0 {
                 return Some(self.lines[l].1[c]);
             }
+            else { // insert \n as last char of line
+                return Some('\n');
+            }
+
+        }
         else {
             return None::<char>;
         }
     }
 }
 
-impl Reader for FileReader {
+impl Reader for LineReader {
     fn current_char(&self) -> Option<char> {
         self.read_char(self.current)
     }
@@ -110,7 +120,7 @@ impl Reader for FileReader {
         let (cl,cc) = self.current;
 
         if cl < self.lines.len() {
-            if cc + 1 >= self.lines[cl].0 {
+            if cc >= self.lines[cl].0 {
                 self.current = (cl + 1, 0);
             }
             else {
@@ -121,7 +131,7 @@ impl Reader for FileReader {
         let (nl, nc) = self.next;
 
         if nl < self.lines.len() {
-            if nc + 1 >= self.lines[nl].0 {
+            if nc >= self.lines[nl].0 {
                 self.next = (nl + 1, 0);
             }
             else {
@@ -164,7 +174,8 @@ impl<T: Reader + Sized> Iterator for TokenStream<T> {
                     ready = true;
                 }
             }
-            else if c == COMMENT {
+            else if c == COMMENT || // or shebang
+                (c == DISPATCH && self.reader.next_char() == Some('!'))  {
                 self.reader.flush_line();
                 if token.is_empty() {
                     continue; // otherwise we return None and quit;
@@ -211,8 +222,13 @@ pub fn tokenize(str: String) -> TokenStream<StringReader> {
     TokenStream {reader: reader, stringing: false}
 }
 
-pub fn tokenize_file(path: String) -> TokenStream<FileReader> {
-    let reader = FileReader::new(&path);
+pub fn tokenize_file(path: String) -> TokenStream<LineReader> {
+    let reader = LineReader::from_file(&path);
+    TokenStream {reader: reader, stringing: false}
+}
+
+pub fn tokenize_stream<R: BufRead>(buf_reader: R) -> TokenStream<LineReader> {
+    let reader = LineReader::from_buffer(buf_reader);
     TokenStream {reader: reader, stringing: false}
 }
 

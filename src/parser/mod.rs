@@ -1,6 +1,8 @@
 mod tokenizer;
 mod reader;
 
+use std::io::{BufRead, Read};
+
 use self::reader::Form;
 use self::tokenizer as tok;
 
@@ -115,6 +117,14 @@ pub fn parse_string(s: String) -> Vec<Expression> {
 
 pub fn parse_file(path: String) -> Vec<Expression> {
     let mut tokens = tok::tokenize_file(path);
+    let mut forms = reader::read(&mut tokens);
+
+    let expression = parse(&mut forms);
+    expression.collect::<Vec<Expression>>()
+}
+
+pub fn parse_buffer<R: BufRead>(reader: R) -> Vec<Expression> {
+    let mut tokens = tok::tokenize_stream(reader);
     let mut forms = reader::read(&mut tokens);
 
     let expression = parse(&mut forms);
