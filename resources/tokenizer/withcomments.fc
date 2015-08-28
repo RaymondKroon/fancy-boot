@@ -1,0 +1,4 @@
+; It could possibly look like this
+(defn test []
+;; with inline comments
+   (+ 1 2))

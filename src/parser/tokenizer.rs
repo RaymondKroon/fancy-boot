@@ -1,10 +1,16 @@
+use std::error::Error as Err;
+use std::fs::File;
+use std::io::{BufReader,BufRead,Lines, Error};
+use std::iter::{FilterMap};
+use std::path::Path;
+use std::result::Result;
 use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT};
 
 pub type Token = String;
 
 pub trait Reader {
-    fn current_char(&mut self) -> Option<char>;
-    fn next_char(&mut self) -> Option<char>;
+    fn current_char(&self) -> Option<char>;
+    fn next_char(&self) -> Option<char>;
     fn pop(&mut self);
     fn flush_line(&mut self);
 }
@@ -22,7 +28,7 @@ impl StringReader {
 }
 
 impl Reader for StringReader {
-    fn current_char(&mut self) -> Option<char> {
+    fn current_char(&self) -> Option<char> {
         if self.index < self.size {
             return Some(self.chars[self.index]);
         }
@@ -31,7 +37,7 @@ impl Reader for StringReader {
         }
     }
 
-    fn next_char(&mut self) -> Option<char> {
+    fn next_char(&self) -> Option<char> {
         if (self.index + 1) < self.size {
             return Some(self.chars[self.index + 1]);
         }
@@ -46,6 +52,89 @@ impl Reader for StringReader {
 
     fn flush_line(&mut self) {
         self.index = self.size + 1;
+    }
+}
+
+#[derive(Debug)]
+pub struct FileReader
+{
+    lines: Vec<(usize, Vec<char>)>,
+    current: (usize, usize),
+    next: (usize, usize)
+}
+
+impl FileReader
+{
+    fn new (strpath: &String) -> Self {
+        let path = Path::new(strpath);
+        let mut file = match File::open(&path) {
+            Err(why) => panic!("couldn't open {}: {}",
+                           path.display(),
+                           Err::description(&why)),
+            Ok(file) => file,
+        };
+
+        let mut reader = BufReader::new(file);
+
+        let lines = reader.lines()
+            .filter_map(|result| result.ok())
+            .map(|s| (s.len(), s.chars().collect()))
+            .collect::<Vec<(usize, Vec<char>)>>();
+
+        FileReader{lines: lines,
+                   current: (0, 0),
+                   next: (0, 1)
+        }
+    }
+
+    fn read_char(&self, idx: (usize, usize)) -> Option<char> {
+        let (l,c) = idx;
+        if l < self.lines.len()
+            && c < self.lines[l].0 {
+                return Some(self.lines[l].1[c]);
+            }
+        else {
+            return None::<char>;
+        }
+    }
+}
+
+impl Reader for FileReader {
+    fn current_char(&self) -> Option<char> {
+        self.read_char(self.current)
+    }
+
+    fn next_char(&self) -> Option<char> {
+        self.read_char(self.next)
+    }
+
+    fn pop(&mut self) {
+        let (cl,cc) = self.current;
+
+        if cl < self.lines.len() {
+            if cc + 1 >= self.lines[cl].0 {
+                self.current = (cl + 1, 0);
+            }
+            else {
+                self.current = (cl, cc + 1);
+            }
+        }
+
+        let (nl, nc) = self.next;
+
+        if nl < self.lines.len() {
+            if nc + 1 >= self.lines[nl].0 {
+                self.next = (nl + 1, 0);
+            }
+            else {
+                self.next = (nl, nc + 1);
+            }
+        }
+    }
+
+    fn flush_line(&mut self) {
+        self.current = (self.current.0 + 1, 0);
+        self.next = (self.next.0 + 1, 1);
     }
 }
 
@@ -79,6 +168,10 @@ impl<T: Reader + Sized> Iterator for TokenStream<T> {
             }
             else if c == COMMENT {
                 self.reader.flush_line();
+                if token.is_empty() {
+                    continue; // otherwise we return None and quit;
+                }
+
                 ready = true;
             }
             else if is_whitespace(c)  {
@@ -120,13 +213,23 @@ pub fn tokenize<'a>(str: &'a String) -> TokenStream<StringReader> {
     TokenStream {reader: reader, stringing: false}
 }
 
+pub fn tokenize_file(path: String) -> TokenStream<FileReader> {
+    let mut reader = FileReader::new(&path);
+    TokenStream {reader: reader, stringing: false}
+}
+
 #[cfg(test)]
 mod tests {
     use super::tokenize;
+    use super::tokenize_file;
     use super::Token;
 
     fn token_vector(str: &'static str) -> Vec<Token> {
         tokenize(&String::from(str)).collect::<Vec<Token>>()
+    }
+
+    fn tokens_from_file(path: &'static str) -> Vec<Token> {
+        tokenize_file(String::from(path)).collect::<Vec<Token>>()
     }
 
     #[test]
@@ -171,5 +274,17 @@ mod tests {
         assert_eq!(vec!("[","[","]","]"), token_vector("[[]] ;; comment here"));
         assert_eq!(vec!("\"","with ;; in string too","\""),
                    token_vector("\"with ;; in string too\""));
+    }
+
+    #[test]
+    fn read_file() {
+        assert_eq!(vec!("(","test","1","2","3",")"),
+                   tokens_from_file("resources/tokenizer/simple.fc"));
+
+        assert_eq!(vec!("(","test","1","2","3",")"),
+                   tokens_from_file("resources/tokenizer/multiline.fc"));
+
+        assert_eq!(vec!("(", "defn","test","[","]","(","+","1","2",")",")"),
+                   tokens_from_file("resources/tokenizer/withcomments.fc"));
     }
 }
