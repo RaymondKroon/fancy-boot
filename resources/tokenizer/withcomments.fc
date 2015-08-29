@@ -1,4 +1,4 @@
 ; It could possibly look like this
-(defn test []
+(defn test [a]
 ;; with inline comments
-   (+ 1 2))
+   (+ 1 a))
