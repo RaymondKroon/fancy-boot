@@ -18,7 +18,7 @@ const QUOTE: char = '"';
 const DISPATCH : char = '#';
 const COMMENT: char = ';';
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expression {
     Symbol(String),
     Number(String),
@@ -45,8 +45,12 @@ fn prepend<T>(item: T, mut v: Vec<T>) -> Vec<T> {
     v
 }
 
-fn symbol(name: &'static str) -> Expression {
+pub fn symbol(name: &'static str) -> Expression {
     Expression::Symbol(String::from(name))
+}
+
+pub fn number(name: &'static str) -> Expression {
+    Expression::Number(String::from(name))
 }
 
 fn dispatch(value: String, inner: Vec<Form>) -> Expression {
