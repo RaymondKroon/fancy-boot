@@ -1,4 +1,4 @@
-#!/home/raymond/bin/fancy-boot
+#!/usr/bin/env fancy-boot
 (+ 1 2 3 4 5)
 
 (reduce + [1 2 3 4])
