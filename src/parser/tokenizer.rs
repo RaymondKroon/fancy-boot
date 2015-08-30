@@ -298,7 +298,7 @@ mod tests {
         assert_eq!(vec!("(","test","1","2","3",")"),
                    tokens_from_file("resources/tokenizer/multiline.fc"));
 
-        assert_eq!(vec!("(", "defn","test","[","]","(","+","1","2",")",")"),
+        assert_eq!(vec!("(", "defn","test","[","a","]","(","+","1","a",")",")"),
                    tokens_from_file("resources/tokenizer/withcomments.fc"));
     }
 }
