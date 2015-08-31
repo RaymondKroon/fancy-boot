@@ -27,18 +27,8 @@ pub enum Expression {
     Params(Vec<Expression>)
 }
 
-pub trait HasForm {
-    fn give_form(&mut self) -> &mut Form;
-}
-
-impl HasForm for Form {
-    fn give_form(&mut self) -> &mut Form {
-        return self;
-    }
-}
-
-pub struct ExpressionStream<'rf, T: HasForm> {
-    forms: &'rf mut Iterator<Item = T>,
+pub struct ExpressionStream<'rf> {
+    forms: &'rf mut Iterator<Item = Form>,
 }
 
 fn prepend<T>(item: T, mut v: Vec<T>) -> Vec<T> {
@@ -63,13 +53,13 @@ fn dispatch(value: String, inner: Vec<Form>) -> Expression {
     }
 }
 
-impl<'a, T: HasForm> Iterator for ExpressionStream<'a, T> {
+impl<'a> Iterator for ExpressionStream<'a> {
     type Item = Expression;
 
     fn next(&mut self) -> Option<Expression> {
         //None::<Expression>
-        if let Some(mut t) = self.forms.next() {
-            match t.give_form().clone() {
+        if let Some(t) = self.forms.next() {
+            match t.clone() {
                 Form::List(inner) =>
                     return Some(Expression::SExpression(parse_vec(inner))),
                 Form::Vector(inner) =>
@@ -101,14 +91,12 @@ impl<'a, T: HasForm> Iterator for ExpressionStream<'a, T> {
     }
 }
 
-fn parse_vec<T>(forms: Vec<T>) -> Vec<Expression>
-    where T: HasForm
+fn parse_vec(forms: Vec<Form>) -> Vec<Expression>
 {
     return parse(&mut forms.into_iter()).collect();
 }
 
-fn parse<'rf, I, T>(forms: &'rf mut I) -> ExpressionStream<'rf, T>
-    where I: Iterator<Item = T>, T: HasForm
+fn parse<'rf>(forms: &'rf mut Iterator<Item = Form>) -> ExpressionStream<'rf>
 {
     ExpressionStream{forms: forms}
 }
