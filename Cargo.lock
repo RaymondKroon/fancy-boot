@@ -3,6 +3,7 @@ name = "fancy-boot"
 version = "0.1.0"
 dependencies = [
  "getopts 0.2.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "llvm-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

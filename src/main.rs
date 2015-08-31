@@ -1,5 +1,8 @@
+#![allow(dead_code, unused_variables, unused_imports)]
+
 mod interpreter;
 mod parser;
+
 mod runtime;
 
 extern crate getopts;
@@ -8,6 +11,7 @@ extern crate llvm_sys as llvm;
 use getopts::Options;
 use std::env;
 use std::io::stdin;
+use ::runtime::Environment;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [FILE] [options]", program);
@@ -39,31 +43,34 @@ fn main() {
         runtime::demo();
     }
 
+    let mut expressions = Vec::<parser::Expression>::new();
+
     if let Some(s) =  matches.opt_str("s") {
-        let expressions = parser::parse_string(s);
-        println!("{:?}", expressions);
-
-        return;
+        expressions = parser::parse_string(s);
     }
 
-    if matches.opt_present("p") {
+    if expressions.len() == 0 && matches.opt_present("p") {
         let stdin = stdin();
-        let expressions = parser::parse_buffer(stdin.lock());
-        println!("{:?}", expressions);
-
-        return;
+        expressions = parser::parse_buffer(stdin.lock());
     }
 
-    let path = if !matches.free.is_empty() {
-        matches.free[0].clone()
-    } else {
+    if expressions.len() == 0 && !matches.free.is_empty() {
+        let path = matches.free[0].clone();
+        expressions = parser::parse_file(path);
+    }
+
+    if expressions.len() == 0 {
         print_usage(&program, opts);
         return;
-    };
+    }
+    else {
+        println!("{:?}", expressions);
 
+        let mut env = ::runtime::LLVMEnvironment::new();
+        let last = env.eval_all(expressions);
 
-    let expressions = parser::parse_file(path);
-    println!("{:?}", expressions);
+        //env.llvm_dump();
+    }
 
     return;
 }

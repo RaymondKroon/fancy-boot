@@ -23,7 +23,8 @@ pub enum Expression {
     Symbol(String),
     Number(String),
     String(String),
-    SExpression(Vec<Expression>)
+    SExpression(Vec<Expression>),
+    Params(Vec<Expression>)
 }
 
 pub trait HasForm {
@@ -57,6 +58,7 @@ fn dispatch(value: String, inner: Vec<Form>) -> Expression {
 
     match value.as_ref() {
         "#{" => Expression::SExpression(prepend(symbol("set"), parse_vec(inner))),
+        "#[" => Expression::Params(parse_vec(inner)),
         _ => panic!("Unknow dispatch value {}", value)
     }
 }

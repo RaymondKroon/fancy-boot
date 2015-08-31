@@ -5,3 +5,4 @@ authors = ["Raymond Kroon <raymond@k3n.nl>"]
 [dependencies]
 getopts = "0.2.13"
 llvm-sys = "0.2.0"
+libc = "0.1.10"
