@@ -27,7 +27,6 @@ pub trait Environment<V: Value> {
 static INIT_LLVM: Once = ONCE_INIT;
 
 pub struct LLVMEnvironment {
-    context: LLVMContextRef,
     builder: LLVMBuilderRef,
     module: LLVMModuleRef,
     engine: LLVMExecutionEngineRef,
@@ -86,7 +85,7 @@ impl LLVMEnvironment {
     fn eval_string(&mut self, s: String) -> LLVMValueRef {
         unsafe {
             let len = s.len();
-            let result = LLVMConstString(cstring(s), len as u32, 0);
+            let result = LLVMBuildGlobalStringPtr(self.builder, cstring(s), cstring_a("tmpstring"));
 
             asserted_return(result)
         }
@@ -98,8 +97,8 @@ impl LLVMEnvironment {
 
                 match name.as_ref() {
                     "extern" => self.defextern(sexp[1..].to_vec()).dump(),
-                    "fn" => self.defn(sexp[1..].to_vec()).dump(),
-                    _ => self.eval_fn(name, sexp[1..].to_vec()).dump()
+                    "fn" => self.defn(sexp[1..].to_vec()),
+                    _ => self.eval_fn(name, sexp[1..].to_vec())
                 }
             }
             else {
@@ -113,7 +112,6 @@ impl LLVMEnvironment {
     }
 
     fn eval_fn(&mut self, name: String, args: Vec<Expression>) -> LLVMValueRef {
-
         let function = self.get_fn(&name);
 
         if function == 0 as LLVMValueRef {
@@ -131,9 +129,12 @@ impl LLVMEnvironment {
             fn_args.push(self.eval(a));
         }
 
+        let result =
         unsafe {
-            LLVMBuildCall(self.builder, function, fn_args.as_mut_ptr(), arg_count, cstring_a("tmpcall"))
-        }
+            LLVMBuildCall(self.builder, function, fn_args.as_mut_ptr(), arg_count, cstring_a("tmpcall")).dump()
+        };
+
+        result
     }
 
     fn defextern(&mut self, args: Vec<Expression>) -> LLVMValueRef {
@@ -183,10 +184,10 @@ impl LLVMEnvironment {
 
     fn defn(&mut self, args: Vec<Expression>) -> LLVMValueRef {
         if args.len() >= 2 {
-            let fndef = self.defextern(args[0..2].to_vec());
+            let mut fndef = self.defextern(args[0..2].to_vec());
 
             unsafe {
-                let bb = LLVMAppendBasicBlockInContext(self.context, fndef, cstring_a("entry"));
+                let bb = LLVMAppendBasicBlockInContext(LLVMGetGlobalContext(), fndef, cstring_a("entry"));
 	        LLVMPositionBuilderAtEnd(self.builder, bb);
 
                 self.named_values.clear();
@@ -199,9 +200,9 @@ impl LLVMEnvironment {
 	        LLVMBuildRet(self.builder, inner);
 
                 analysis::LLVMVerifyFunction(fndef,
-                                               analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction);
+                                                 analysis::LLVMVerifierFailureAction::LLVMPrintMessageAction);
 
-                fndef
+                fndef.dump()
             }
         }
         else {
@@ -239,8 +240,7 @@ impl LLVMEnvironment {
             }
         });
 
-        let context = unsafe {LLVMContextCreate()};
-        let builder = unsafe {LLVMCreateBuilderInContext(context)};
+        let builder = unsafe {LLVMCreateBuilderInContext(LLVMGetGlobalContext())};
         let module = unsafe {LLVMModuleCreateWithName(b"fancy\0".as_ptr() as *const _)};
 
         let engine = unsafe {
@@ -254,13 +254,13 @@ impl LLVMEnvironment {
             exec_engine
         };
 
-        let mut env = LLVMEnvironment{context: context, builder: builder,
+        let mut env = LLVMEnvironment{builder: builder,
                                       module: module, engine: engine,
                                       named_values: HashMap::new()
         };
 
         env.init_from_ir(String::from(
- "define i64 @\"add\"(i64, i64) {
+"define i64 @\"add\"(i64, i64) {
    entry:
      %tmp = add i64 %0, %1
      ret i64 %tmp
@@ -272,7 +272,20 @@ define i64 @\"sub\"(i64, i64) {
      ret i64 %tmp
  }
 
-declare double @atof(i8*) #2
+; Function Attrs: nounwind uwtable
+define double @\"add_double\"(double %a, double %b) {
+  %1 = alloca double, align 8
+  %2 = alloca double, align 8
+  store double %a, double* %1, align 8
+  store double %b, double* %2, align 8
+  %3 = load double* %1, align 8
+  %4 = load double* %2, align 8
+  %5 = fadd double %3, %4
+  ret double %5
+}
+
+; Function Attrs: nounwind readonly
+declare double @atof(i8*)
 "));
 
         env
@@ -306,7 +319,7 @@ declare double @atof(i8*) #2
                 len as u64,
                 b"fancy\0".as_ptr() as *const _);
 
-            llvm::ir_reader::LLVMParseIRInContext(self.context,
+            llvm::ir_reader::LLVMParseIRInContext(LLVMGetGlobalContext(),
                                                   membuf,
                                                   &mut self.module,
                                                   &mut msg);
@@ -326,7 +339,6 @@ impl Drop for LLVMEnvironment {
         unsafe {
             LLVMDisposeBuilder(self.builder);
             LLVMDisposeModule(self.module);
-            LLVMContextDispose(self.context);
         }
     }
 }
