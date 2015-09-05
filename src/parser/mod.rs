@@ -11,6 +11,9 @@ const MAP: (&'static str, &'static str) = ("{","}");
 const VECTOR: (&'static str, &'static str) = ("[","]");
 const STRING: (&'static str, &'static str) = ("\"","\"");
 
+const LIST_CHARS: (char, char) = ('(',')');
+const VECTOR_CHARS: (char, char) = ('[',']');
+const MAP_CHARS: (char, char) = ('{','}');
 const START_CHARS: [char; 3] = ['(', '{', '['];
 const END_CHARS: [char; 3] = [')', '}', ']'];
 

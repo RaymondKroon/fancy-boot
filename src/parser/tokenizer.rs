@@ -2,7 +2,7 @@ use std::error::Error as Err;
 use std::fs::File;
 use std::io::{BufReader, BufRead, Read};
 use std::path::Path;
-use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT};
+use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT, LIST_CHARS, VECTOR_CHARS, MAP_CHARS};
 
 pub type Token = String;
 
@@ -192,13 +192,22 @@ impl<T: Reader + Sized> Iterator for TokenStream<T> {
             }
             else if DISPATCH == c {
                 token.push(c);
+                match self.reader.next_char() {
+                    None => {},
+                    Some(n) =>
+                        if n == VECTOR_CHARS.0 {
+                            ready = true;
+                        }
+                }
             }
             else {
                 token.push(c);
                 match self.reader.next_char() {
                     None => ready = true,
                     Some(n) =>
-                        if is_whitespace(n) || END_CHARS.contains(&n) || n == QUOTE {
+                        if is_whitespace(n) || END_CHARS.contains(&n) || n == QUOTE
+                            || n == LIST_CHARS.0 || n == MAP_CHARS.0 || n == VECTOR_CHARS.0
+                        {
                             ready = true;
                         }
                 }
@@ -279,8 +288,15 @@ mod tests {
         assert_eq!(vec!("#(","1","2","3",")"), token_vector("#(1,,, 2    3)"));
         assert_eq!(vec!("#{","1","2","3","}"), token_vector("#{1 2 3}"));
         assert_eq!(vec!("#custom"), token_vector("#custom"));
-        assert_eq!(vec!("#custom(", "1", "2", "3", ")"), token_vector("#custom(1 2 3)"));
+        assert_eq!(vec!("#custom", "(", "1", "2", "3", ")"), token_vector("#custom(1 2 3)"));
         assert_eq!(vec!("#custom", "symbol"), token_vector("#custom symbol"));
+        assert_eq!(vec!("(", "symbol", "{"), token_vector("(symbol{"));
+        assert_eq!(vec!("symbol", "("), token_vector("symbol("));
+        assert_eq!(vec!("symbol", "["), token_vector("symbol["));
+        assert_eq!(vec!("#symbol", "{"), token_vector("#symbol{"));
+        assert_eq!(vec!("#{", "a"), token_vector("#{a"));
+        assert_eq!(vec!("#(", "a"), token_vector("#(a"));
+        assert_eq!(vec!("#", "[", "a"), token_vector("#[a"));
     }
 
     #[test]
