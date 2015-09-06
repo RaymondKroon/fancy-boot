@@ -22,9 +22,9 @@ enum Outer {
 }
 
 pub struct FormStream<'rf> {
-    tokens: &'rf mut Iterator<Item = Token>,
-    current_token: Option<Token>,
-    next_token: Option<Token>,
+    tokens: &'rf mut Iterator<Item = (Token, TokenInfo)>,
+    current_token: Option<(Token, TokenInfo)>,
+    next_token: Option<(Token, TokenInfo)>,
     outer: Outer
 }
 

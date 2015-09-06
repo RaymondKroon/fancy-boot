@@ -2,30 +2,111 @@ use std::error::Error as Err;
 use std::fs::File;
 use std::io::{BufReader, BufRead, Read};
 use std::path::Path;
-use super::{QUOTE,START_CHARS,END_CHARS,DISPATCH, COMMENT, LIST_CHARS, VECTOR_CHARS, MAP_CHARS};
 
-pub type Token = String;
+const BANG: char = '!';
+const COMMENT: char = ';';
+const DEREF: char = '@';
+const DISPATCH : char = '#';
+const DOUBLE_QUOTE: char = '"';
+const LIST_START: char = '(';
+const LIST_END: char = ')';
+const MAP_START: char = '{';
+const MAP_END: char = '}';
+const SINGLE_QUOTE: char = '\'';
+const SYNTAX_QUOTE: char = '`';
+const UNQUOTE: char = '~';
+const VECTOR_START: char = '[';
+const VECTOR_END: char = ']';
 
-pub trait Reader {
-    fn current_char(&self) -> Option<char>;
-    fn next_char(&self) -> Option<char>;
-    fn pop(&mut self);
-    fn flush_line(&mut self);
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Token {
+    Discard(Discard),
+    Dispatch(String),
+    Deref(Deref),
+    FunctionStart(FunctionStart),
+    ListStart(ListStart),
+    ListEnd(ListEnd),
+    Literal(String),
+    MapStart(MapStart),
+    Quote(Quote),
+    Regex(String),
+    SetStart(SetStart),
+    SetEnd(SetEnd),
+    String(String),
+    Unquote(Unquote),
+    UnquoteSplicing(UnquoteSplicing),
+    VectorStart(VectorStart),
+    VectorEnd(VectorEnd)
 }
 
-pub struct StringReader {
+impl Token {
+
+    fn discard() -> Token { Token::Discard(Discard) }
+    fn dispatch() -> Token { Token::Dispatch(Dispatch) }
+    fn deref() -> Token { Token::Deref(Deref) }
+    fn function_start() -> Token {Token::FunctionStart(FunctionStart)}
+    fn list_start() -> Token { Token::ListStart(ListStart) }
+    fn list_end() -> Token { Token::ListEnd(ListEnd) }
+    fn literal(str: String) -> Token { Token::Literal(str) }
+    fn map_start() -> Token { Token::MapStart(MapStart) }
+    fn map_end() -> Token { Token::MapEnd(MapEnd) }
+    fn quote() -> Token { Token::Quote(Quote) }
+    fn regex(str: String) -> Token { Token::Regex(str) }
+    fn set_start() -> Token { Token::SetStart(SetStart) }
+    fn string(str: String) -> Token { Token::String(str) }
+    fn unquote() -> Token { Token::Unquote(Unquote) }
+    fn unquote_splicing() -> Token { Token::UnquoteSplicing(UnquoteSplicing) }
+    fn vector_start() -> Token { Token::VectorStart(VectorStart) }
+    fn vector_end() -> Token { Token::VectorEnd(VectorEnd) }
+
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct Discard;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct FunctionStart;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct ListStart;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct ListEnd;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct MapStart;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct MapEnd;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct Quote;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct Unquote;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct UnquoteSplicing;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct VectorStart;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct VectorEnd;
+#[derive(Clone, Debug, Eq, PartialEq)] pub struct SetStart;
+
+pub struct TokenInfo {
+    line: usize,
+    char: usize
+}
+
+impl TokenInfo {
+    fn new(pos: (usize, usize)) -> TokenInfo {
+        TokenInfo{line: pos.0, char: pos.1}
+    }
+}
+
+pub trait Scanner {
+    fn current_char(&self) -> Option<char>;
+    fn next_char(&self) -> Option<char>;
+    fn previous_char(&self) -> Option<char>;
+    fn pop(&mut self);
+    fn flush_line(&mut self);
+    fn position(&self) -> (usize, usize);
+}
+
+pub struct StringScanner {
     chars: Vec<char>,
     size: usize,
     index: usize
 }
 
-impl StringReader {
-    fn new (str: & String) -> StringReader {
-        StringReader{chars: str.chars().collect(), size: str.len(), index: 0}
+impl StringScanner {
+    fn new (str: & String) -> StringScanner {
+        StringScanner{chars: str.chars().collect(), size: str.len(), index: 0}
     }
 }
 
-impl Reader for StringReader {
+impl Scanner for StringScanner {
     fn current_char(&self) -> Option<char> {
         if self.index < self.size {
             return Some(self.chars[self.index]);
@@ -44,6 +125,15 @@ impl Reader for StringReader {
         }
     }
 
+    fn previous_char(&self) -> Option<char> {
+        if (self.index - 1) > 0 {
+            return Some(self.chars[self.index - 1]);
+        }
+        else {
+            return None::<char>;
+        }
+    }
+
     fn pop(&mut self) {
         self.index = self.index + 1;
     }
@@ -51,17 +141,22 @@ impl Reader for StringReader {
     fn flush_line(&mut self) {
         self.index = self.size + 1;
     }
+
+    fn position(&self) -> (usize, usize) {
+        (0, index + 1)
+    }
 }
 
 #[derive(Debug)]
-pub struct LineReader
+pub struct LineScanner
 {
     lines: Vec<(usize, Vec<char>)>,
     current: (usize, usize),
-    next: (usize, usize)
+    next: (usize, usize),
+    previous: (usize, usize)
 }
 
-impl LineReader
+impl LineScanner
 {
     fn from_file (strpath: &String) -> Self {
         let path = Path::new(strpath);
@@ -83,9 +178,10 @@ impl LineReader
             .map(|s| (s.len(), s.chars().collect()))
             .collect::<Vec<(usize, Vec<char>)>>();
 
-        LineReader{lines: lines,
-                   current: (0, 0),
-                   next: (0, 1)
+        LineScanner{lines: lines,
+                    current: (0, 0),
+                    next: (0, 1),
+                    previous: (0, -1)
         }
     }
 
@@ -93,7 +189,11 @@ impl LineReader
         let (l,c) = idx;
         if l < self.lines.len()
         {
-            if c < self.lines[l].0 {
+
+            if c < 0 {
+                return None::<char>;
+            }
+            else if c < self.lines[l].0 {
                 return Some(self.lines[l].1[c]);
             }
             else { // insert \n as last char of line
@@ -107,7 +207,7 @@ impl LineReader
     }
 }
 
-impl Reader for LineReader {
+impl Scanner for LineScanner {
     fn current_char(&self) -> Option<char> {
         self.read_char(self.current)
     }
@@ -116,8 +216,14 @@ impl Reader for LineReader {
         self.read_char(self.next)
     }
 
+    fn previous_char(&self) -> Option<char> {
+        self.read_char(self.previous);
+    }
+
     fn pop(&mut self) {
+
         let (cl,cc) = self.current;
+        self.previous = (cl, cc);
 
         if cl < self.lines.len() {
             if cc >= self.lines[cl].0 {
@@ -141,12 +247,18 @@ impl Reader for LineReader {
     }
 
     fn flush_line(&mut self) {
+        self.previous = (self.current.0, self.current.1);
         self.current = (self.current.0 + 1, 0);
         self.next = (self.next.0 + 1, 1);
     }
+
+    fn position(&self) -> (usize, usize) {
+        let (l, c) = self.current;
+        (l + 1, c + 1)
+    }
 }
 
-pub struct TokenStream<T: Reader + Sized> {
+pub struct TokenStream<T: Scanner + Sized> {
     reader: T,
     stringing: bool
 }
@@ -155,61 +267,84 @@ fn is_whitespace(c: char) -> bool {
     c.is_whitespace() || c == ','
 }
 
-impl<T: Reader + Sized> Iterator for TokenStream<T> {
-    type Item = Token;
+impl<T: Scanner + Sized> Iterator for TokenStream<T> {
+    type Item = (Token, TokenInfo);
 
-    fn next(&mut self) -> Option<Token> {
-        let mut token = String::new();
+    fn next(&mut self) -> Option<(Token, TokenInfo)> {
+        let mut buffer = String::new();
+        let token_info = TokenInfo::new(self.reader.position());
+        let mut token = None::<(Token, TokenInfo)>;
         let mut ready = false;
 
+
+        fn is_next(req: char) -> bool {
+            if let Some(c) = self.reader.next_char() {
+                return c == req;
+            }
+
+            return false;
+        }
+
+        fn is_prev_whitespace() -> bool {
+            if let Some(c) = self.reader.previous_char() {
+                return is_whitespace(c);
+            }
+
+            return false;
+        }
+
+        fn ready() {
+            ready = true;
+        }
+
+        fn ret(t: Token) {
+            token = Some(t, token_info);
+            ready();
+        }
+
+        fn flush_line() {
+            self.reader.flush_line();
+            if !buffer.is_empty() {
+                ret(Token::literal(buffer));
+            }
+        }
+
         while let Some(c) = self.reader.current_char() {
-            if c == QUOTE {
-                token.push(c);
-                ready = true;
-                self.stringing = !self.stringing;
-            }
-            else if self.stringing {
-                token.push(c);
-                if self.reader.next_char() == Some(QUOTE) {
-                    ready = true;
-                }
-            }
-            else if c == COMMENT || // or shebang
-                (c == DISPATCH && self.reader.next_char() == Some('!'))  {
-                self.reader.flush_line();
-                if token.is_empty() {
-                    continue; // otherwise we return None and quit;
-                }
 
-                ready = true;
-            }
-            else if is_whitespace(c)  {
+            match c {
+                DOUBLE_QUOTE if self.stringing => {
+                    self.stringing = false;
+                    ret(Token::string(buffer));
+                },
+                DOUBLE_QUOTE if !self.stringing => {
+                    self.stringing = true;
+                },
+                _ if self.stringing => {
+                    buffer.push(c);
+                },
+                COMMENT => self.reader.flush_line(),
+                _ if is_whitespace(c) => {},
+                LIST_START => ret(Token::list_start()),
+                LIST_END => ret(Token::list_end()),
+                VECTOR_START => ret(Token::vector_start()),
+                VECTOR_END => ret(Token::vector_end()),
+                MAP_START => ret(Token::map_start()),
+                MAP_END => ret(Token::map_end()),
+                DISPATCH if is_next(BANG) && is_prev_whitespace() => self.reader.flush_line(),
+                DISPATCH if is_next(LIST_START) => ret(Token::function_start()),
+                DISPATCH if is_next(MAP_START) => ret(Token::set_start()),
+                _ => {
+                    buffer.push(c);
 
-            }
-            else if START_CHARS.contains(&c) || END_CHARS.contains(&c) {
-                token.push(c);
-                ready = true;
-            }
-            else if DISPATCH == c {
-                token.push(c);
-                match self.reader.next_char() {
-                    None => {},
-                    Some(n) =>
-                        if n == VECTOR_CHARS.0 {
-                            ready = true;
+                    if let Some(n) = self.reader.next_char() {
+                        match n {
+                            LIST_END | MAP_END | VECTOR_END | COMMENT => ret(Token::literal(buffer)),
+                            _ if is_whitespace(n) => ret(Token::literal(buffer))
                         }
-                }
-            }
-            else {
-                token.push(c);
-                match self.reader.next_char() {
-                    None => ready = true,
-                    Some(n) =>
-                        if is_whitespace(n) || END_CHARS.contains(&n) || n == QUOTE
-                            || n == LIST_CHARS.0 || n == MAP_CHARS.0 || n == VECTOR_CHARS.0
-                        {
-                            ready = true;
-                        }
+                    }
+                    else {
+                        ret(Token::literal(buffer));
+                    }
                 }
             }
 
@@ -217,27 +352,22 @@ impl<T: Reader + Sized> Iterator for TokenStream<T> {
             if ready { break; }
         }
 
-        if token.is_empty() {
-            return None::<Token>;
-        }
-        else {
-            return Some(token);
-        }
+        return token;
     }
 }
 
-pub fn tokenize(str: String) -> TokenStream<StringReader> {
-    let reader = StringReader::new(&str);
+pub fn tokenize(str: String) -> TokenStream<StringScanner> {
+    let reader = StringScanner::new(&str);
     TokenStream {reader: reader, stringing: false}
 }
 
-pub fn tokenize_file(path: String) -> TokenStream<LineReader> {
-    let reader = LineReader::from_file(&path);
+pub fn tokenize_file(path: String) -> TokenStream<LineScanner> {
+    let reader = LineScanner::from_file(&path);
     TokenStream {reader: reader, stringing: false}
 }
 
-pub fn tokenize_stream<R: BufRead>(buf_reader: R) -> TokenStream<LineReader> {
-    let reader = LineReader::from_buffer(buf_reader);
+pub fn tokenize_stream<R: BufRead>(buf_reader: R) -> TokenStream<LineScanner> {
+    let reader = LineScanner::from_buffer(buf_reader);
     TokenStream {reader: reader, stringing: false}
 }
 

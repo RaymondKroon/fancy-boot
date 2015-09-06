@@ -1,50 +1,52 @@
 mod tokenizer;
-mod reader;
 
 use std::io::{BufRead, Read};
 
-use self::reader::Form;
+//use super::util;
 use self::tokenizer as tok;
+use self::tokenizer::{Token, TokenInfo};
 
 const LIST: (&'static str, &'static str) = ("(",")");
 const MAP: (&'static str, &'static str) = ("{","}");
 const VECTOR: (&'static str, &'static str) = ("[","]");
 const STRING: (&'static str, &'static str) = ("\"","\"");
 
-const LIST_CHARS: (char, char) = ('(',')');
-const VECTOR_CHARS: (char, char) = ('[',']');
-const MAP_CHARS: (char, char) = ('{','}');
-const START_CHARS: [char; 3] = ['(', '{', '['];
-const END_CHARS: [char; 3] = [')', '}', ']'];
-
-const QUOTE: char = '"';
-const DISPATCH : char = '#';
-const COMMENT: char = ';';
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expression {
-    Symbol(String),
-    Number(String),
-    String(String),
-    SExpression(Vec<Expression>),
-    Params(Vec<Expression>)
+    List(List),
+    Number(Number),
+    Map(Map),
+    Regex(Regex),
+    Set(Set),
+    String(Stringy),
+    Symbol(Symbol),
+    Vector(Vector)
 }
 
+pub fn symbol(str: String) { Expression::Symbol(Symbol {name: str}) }
+pub fn number(str: String) { Expression::Number(Number {value: str}) }
+pub fn string(str: String) { Expression::String(Stringy {value: str}) }
+
+
+pub struct List { inner: Vec<Expression> }
+pub struct Number {value: String}
+pub struct Map { inner: Vec<Expression> }
+pub struct Regex {value: String}
+pub struct Set { inner: Vec<Expression> }
+pub struct Stringy {value: String}
+pub struct Symbol {name: String}
+pub struct Vector { inner: Vec<Expression> }
+
 pub struct ExpressionStream<'rf> {
-    forms: &'rf mut Iterator<Item = Form>,
+    tokens: &'rf mut Iterator<Item = (Token, TokenInfo)>,
+    current_token: Option<(Token, TokenInfo)>,
+    next_token: Option<(Token, TokenInfo)>,
+    outer: Some<Token>
 }
 
 fn prepend<T>(item: T, mut v: Vec<T>) -> Vec<T> {
     v.insert(0, item);
     v
-}
-
-pub fn symbol(name: &'static str) -> Expression {
-    Expression::Symbol(String::from(name))
-}
-
-pub fn number(name: &'static str) -> Expression {
-    Expression::Number(String::from(name))
 }
 
 fn dispatch(value: String, inner: Vec<Form>) -> Expression {
@@ -56,10 +58,50 @@ fn dispatch(value: String, inner: Vec<Form>) -> Expression {
     }
 }
 
+impl<'rf> ExpressionStream<'rf> {
+
+    fn read_inner<'a>(&mut self, outer: Some<Token>)
+                                -> Vec<Expression> {
+        self.read_next();
+
+        let old_outer = self.outer.clone();
+        self.outer = outer;
+
+
+        let inner: Vec<Form> = self.collect();
+
+        // copy back;
+        self.outer = old_outer;
+        return inner;
+    }
+
+    fn read_next (&mut self) {
+        self.current_token = self.next_token.clone();
+        self.next_token = self.tokens.next();
+    }
+
+    fn assert_token(&mut self, expected_token: &'static str) {
+        self.assert_token_string(String::from(expected_token));
+    }
+
+    fn assert_token_string (&mut self, expected_token: String) {
+        if let Some(ref t) = self.current_token {
+            if *t != expected_token {
+                panic!("expected {:?}, got {:?}", expected_token, t);
+            }
+        }
+        else {
+            panic!("expected {:?}, got nothing", expected_token);
+        }
+    }
+}
+
+
 impl<'a> Iterator for ExpressionStream<'a> {
     type Item = Expression;
 
     fn next(&mut self) -> Option<Expression> {
+
         //None::<Expression>
         if let Some(t) = self.forms.next() {
             match t.clone() {

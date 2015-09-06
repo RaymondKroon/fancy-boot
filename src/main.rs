@@ -2,8 +2,8 @@
 
 mod interpreter;
 mod parser;
-
 mod runtime;
+mod util;
 
 extern crate getopts;
 extern crate llvm_sys as llvm;
