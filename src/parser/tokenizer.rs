@@ -14,66 +14,33 @@ const MAP_START: char = '{';
 const MAP_END: char = '}';
 const SINGLE_QUOTE: char = '\'';
 const SYNTAX_QUOTE: char = '`';
-const UNQUOTE: char = '~';
+const TILDE: char = '~';
 const VECTOR_START: char = '[';
 const VECTOR_END: char = ']';
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token {
-    Discard(Discard),
-    Dispatch(String),
-    Deref(Deref),
-    FunctionStart(FunctionStart),
-    ListStart(ListStart),
-    ListEnd(ListEnd),
+    Discard,
+    Dispatch,
+    Deref,
+    FunctionStart,
+    ListStart,
+    ListEnd,
     Literal(String),
-    MapStart(MapStart),
-    Quote(Quote),
+    MapStart,
+    MapEnd,
+    Quote,
     Regex(String),
-    SetStart(SetStart),
-    SetEnd(SetEnd),
+    SetStart,
     String(String),
-    Unquote(Unquote),
-    UnquoteSplicing(UnquoteSplicing),
-    VectorStart(VectorStart),
-    VectorEnd(VectorEnd)
+    SyntaxQuote,
+    Unquote,
+    UnquoteSplicing,
+    VectorStart,
+    VectorEnd
 }
 
-impl Token {
-
-    fn discard() -> Token { Token::Discard(Discard) }
-    fn dispatch() -> Token { Token::Dispatch(Dispatch) }
-    fn deref() -> Token { Token::Deref(Deref) }
-    fn function_start() -> Token {Token::FunctionStart(FunctionStart)}
-    fn list_start() -> Token { Token::ListStart(ListStart) }
-    fn list_end() -> Token { Token::ListEnd(ListEnd) }
-    fn literal(str: String) -> Token { Token::Literal(str) }
-    fn map_start() -> Token { Token::MapStart(MapStart) }
-    fn map_end() -> Token { Token::MapEnd(MapEnd) }
-    fn quote() -> Token { Token::Quote(Quote) }
-    fn regex(str: String) -> Token { Token::Regex(str) }
-    fn set_start() -> Token { Token::SetStart(SetStart) }
-    fn string(str: String) -> Token { Token::String(str) }
-    fn unquote() -> Token { Token::Unquote(Unquote) }
-    fn unquote_splicing() -> Token { Token::UnquoteSplicing(UnquoteSplicing) }
-    fn vector_start() -> Token { Token::VectorStart(VectorStart) }
-    fn vector_end() -> Token { Token::VectorEnd(VectorEnd) }
-
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct Discard;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct FunctionStart;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct ListStart;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct ListEnd;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct MapStart;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct MapEnd;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct Quote;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct Unquote;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct UnquoteSplicing;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct VectorStart;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct VectorEnd;
-#[derive(Clone, Debug, Eq, PartialEq)] pub struct SetStart;
-
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenInfo {
     line: usize,
     char: usize
@@ -82,6 +49,140 @@ pub struct TokenInfo {
 impl TokenInfo {
     fn new(pos: (usize, usize)) -> TokenInfo {
         TokenInfo{line: pos.0, char: pos.1}
+    }
+}
+
+pub struct TokenStream<T: Scanner + Sized> {
+    scanner: T,
+    stringing: bool,
+    regex: bool,
+    waiting: Option<(Token, TokenInfo)>
+}
+
+impl TokenStream {
+    fn new<T>(scanner: T) -> TokenStream<T> {
+        TokenStream {scanner: scanner, stringing: false, regex: false,
+        waiting: None::<Token>}
+    }
+
+    fn is_next(req: char) -> bool {
+        if let Some(c) = self.scanner.next_char() {
+            return c == req;
+        }
+
+        return false;
+    }
+
+    fn is_prev_whitespace() -> bool {
+        if let Some(c) = self.scanner.previous_char() {
+            return is_whitespace(c);
+        }
+
+        return false;
+    }
+}
+
+impl<T: Scanner + Sized> Iterator for TokenStream<T> {
+    type Item = (Token, TokenInfo);
+
+    fn next(&mut self) -> Option<(Token, TokenInfo)> {
+
+        if let Some(waiting) = self.waiting {
+            self.waiting = None::<(Token, TokenInfo)>;
+            return waiting;
+        }
+
+        let mut buffer = String::new();
+        let token_info = TokenInfo::new(self.reader.position());
+        let mut token = None::<(Token, TokenInfo)>;
+        let mut ready = false;
+
+        fn ready() {
+            ready = true;
+        }
+
+        fn ret(t: Token) {
+
+            if !buffer.is_empty() {
+                token = Some(Token::Literal(buffer), token_info);
+                self.waiting = Some(t, TokenInfo::new(self.reader.position()));
+            }
+            else {
+                token = Some(t, token_info);
+            }
+
+            ready();
+        }
+
+        fn flush_line() {
+            self.reader.flush_line();
+            if !buffer.is_empty() {
+                token = Token::literal(buffer);
+                ready = true;
+            }
+        }
+
+        while let Some(c) = self.reader.current_char() {
+
+            match c {
+                DOUBLE_QUOTE if self.stringing => {
+                    self.stringing = false;
+
+                    if self.regex {
+                        ret(Token::Regex(buffer));
+                        self.regex = false;
+                    }
+                    else {
+                        ret(Token::String(buffer));
+                    }
+                },
+                DOUBLE_QUOTE if !self.stringing => {
+                    self.stringing = true;
+                },
+                _ if self.stringing => {
+                    buffer.push(c);
+                },
+                COMMENT => self.scanner.flush_line(),
+                _ if is_whitespace(c) => {},
+                LIST_START => ret(Token::ListStart),
+                LIST_END => ret(Token::ListEnd),
+                VECTOR_START => ret(Token::VectorStart),
+                VECTOR_END => ret(Token::VectorEnd),
+                MAP_START => ret(Token::MapStart),
+                MAP_END => ret(Token::MapStart),
+                DISPATCH if is_next(BANG) && is_prev_whitespace() => self.scanner.flush_line(),
+                DISPATCH if is_next(LIST_START) => ret(Token::FunctionStart),
+                DISPATCH if is_next(MAP_START) => ret(Token::set_start()),
+                DISPATCH if is_next(DOUBLE_QUOTE) => {
+                    self.scanner.pop();
+                    self.regex = true;
+                },
+                SINGLE_QUOTE => ret(Token::Quote),
+                SYNTAX_QUOTE => ret(Token::SyntaxQuote),
+                TILDE if is_next(DEREF) => {
+                    self.scanner.pop();
+                    ret(Token::UnquoteSplicing);
+                },
+                TILDE => ret(Token::Unquote),
+                _ => {
+                    buffer.push(c);
+
+                    if let Some(n) = self.reader.next_char() {
+                        if is_whitespace(n) {
+                            ret(Token::Literal(buffer))
+                        }
+                    }
+                    else {
+                        ret(Token::Literal(buffer));
+                    }
+                }
+            }
+
+            self.scanner.pop();
+            if ready { break; }
+        }
+
+        return token;
     }
 }
 
@@ -258,117 +359,23 @@ impl Scanner for LineScanner {
     }
 }
 
-pub struct TokenStream<T: Scanner + Sized> {
-    reader: T,
-    stringing: bool
-}
-
 fn is_whitespace(c: char) -> bool {
     c.is_whitespace() || c == ','
 }
 
-impl<T: Scanner + Sized> Iterator for TokenStream<T> {
-    type Item = (Token, TokenInfo);
-
-    fn next(&mut self) -> Option<(Token, TokenInfo)> {
-        let mut buffer = String::new();
-        let token_info = TokenInfo::new(self.reader.position());
-        let mut token = None::<(Token, TokenInfo)>;
-        let mut ready = false;
-
-
-        fn is_next(req: char) -> bool {
-            if let Some(c) = self.reader.next_char() {
-                return c == req;
-            }
-
-            return false;
-        }
-
-        fn is_prev_whitespace() -> bool {
-            if let Some(c) = self.reader.previous_char() {
-                return is_whitespace(c);
-            }
-
-            return false;
-        }
-
-        fn ready() {
-            ready = true;
-        }
-
-        fn ret(t: Token) {
-            token = Some(t, token_info);
-            ready();
-        }
-
-        fn flush_line() {
-            self.reader.flush_line();
-            if !buffer.is_empty() {
-                ret(Token::literal(buffer));
-            }
-        }
-
-        while let Some(c) = self.reader.current_char() {
-
-            match c {
-                DOUBLE_QUOTE if self.stringing => {
-                    self.stringing = false;
-                    ret(Token::string(buffer));
-                },
-                DOUBLE_QUOTE if !self.stringing => {
-                    self.stringing = true;
-                },
-                _ if self.stringing => {
-                    buffer.push(c);
-                },
-                COMMENT => self.reader.flush_line(),
-                _ if is_whitespace(c) => {},
-                LIST_START => ret(Token::list_start()),
-                LIST_END => ret(Token::list_end()),
-                VECTOR_START => ret(Token::vector_start()),
-                VECTOR_END => ret(Token::vector_end()),
-                MAP_START => ret(Token::map_start()),
-                MAP_END => ret(Token::map_end()),
-                DISPATCH if is_next(BANG) && is_prev_whitespace() => self.reader.flush_line(),
-                DISPATCH if is_next(LIST_START) => ret(Token::function_start()),
-                DISPATCH if is_next(MAP_START) => ret(Token::set_start()),
-                _ => {
-                    buffer.push(c);
-
-                    if let Some(n) = self.reader.next_char() {
-                        match n {
-                            LIST_END | MAP_END | VECTOR_END | COMMENT => ret(Token::literal(buffer)),
-                            _ if is_whitespace(n) => ret(Token::literal(buffer))
-                        }
-                    }
-                    else {
-                        ret(Token::literal(buffer));
-                    }
-                }
-            }
-
-            self.reader.pop();
-            if ready { break; }
-        }
-
-        return token;
-    }
-}
-
 pub fn tokenize(str: String) -> TokenStream<StringScanner> {
-    let reader = StringScanner::new(&str);
-    TokenStream {reader: reader, stringing: false}
+    let scanner = StringScanner::new(&str);
+    TokenStream::new(scanner)
 }
 
 pub fn tokenize_file(path: String) -> TokenStream<LineScanner> {
-    let reader = LineScanner::from_file(&path);
-    TokenStream {reader: reader, stringing: false}
+    let scanner = LineScanner::from_file(&path);
+    TokenStream::new(scanner)
 }
 
 pub fn tokenize_stream<R: BufRead>(buf_reader: R) -> TokenStream<LineScanner> {
-    let reader = LineScanner::from_buffer(buf_reader);
-    TokenStream {reader: reader, stringing: false}
+    let scanner = LineScanner::from_buffer(buf_reader);
+    TokenStream::new(scanner)
 }
 
 #[cfg(test)]
